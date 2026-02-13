@@ -1,0 +1,23 @@
+package com.seven1111.offshare
+
+import com.facebook.react.ReactPackage
+import com.facebook.react.bridge.NativeModule
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.uimanager.ViewManager
+import java.util.Collections
+
+class FileServerPackage : ReactPackage {
+    override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
+        return listOf(
+            FileServerModule(reactContext),
+            HotspotManager(reactContext),
+            WifiConnectorModule(reactContext),
+            MediaScannerModule(reactContext),
+            SafTransferModule(reactContext)
+        )
+    }
+
+    override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {
+        return Collections.emptyList()
+    }
+}

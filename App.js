@@ -1,11 +1,31 @@
+
+import React, { useState } from 'react';
+import { StyleSheet, View, StatusBar as RNStatusBar } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import HomeScreen from './src/screens/HomeScreen';
+import ShareScreen from './src/screens/ShareScreen';
+import ReceiveScreen from './src/screens/ReceiveScreen';
+import { COLORS } from './src/constants/theme';
 
 export default function App() {
+  const [currentScreen, setCurrentScreen] = useState('home'); // home, share, receive
+
+  const renderScreen = () => {
+    switch (currentScreen) {
+      case 'share':
+        return <ShareScreen onBack={() => setCurrentScreen('home')} />;
+      case 'receive':
+        return <ReceiveScreen onBack={() => setCurrentScreen('home')} />;
+      case 'home':
+      default:
+        return <HomeScreen onSelectRole={(role) => setCurrentScreen(role)} />;
+    }
+  };
+
   return (
     <View style={styles.container}>
-      <Text>Open up App.js to start working on your app!</Text>
-      <StatusBar style="auto" />
+      <StatusBar style="light" backgroundColor={COLORS.background} />
+      {renderScreen()}
     </View>
   );
 }
@@ -13,8 +33,6 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: COLORS.background,
   },
 });

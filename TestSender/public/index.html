@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TestSender — OffShare Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & Base ──────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: #0a0a0f;
+      color: #e4e4e7;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+    }
+
+    /* animated gradient bg */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 10%, rgba(99,102,241,.15), transparent),
+        radial-gradient(ellipse 60% 50% at 80% 80%, rgba(236,72,153,.12), transparent);
+      z-index: -1;
+      animation: bgShift 12s ease-in-out infinite alternate;
+    }
+    @keyframes bgShift {
+      0%   { opacity: .8; }
+      100% { opacity: 1; }
+    }
+
+    /* ── Layout ────────────────────────────────────── */
+    .container {
+      width: 100%;
+      max-width: 520px;
+      padding: 2rem 1.25rem 3rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    /* ── Header ────────────────────────────────────── */
+    .header {
+      text-align: center;
+      padding-bottom: .5rem;
+    }
+    .header h1 {
+      font-size: 1.65rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #818cf8, #e879f9);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -.025em;
+    }
+    .header p {
+      margin-top: .35rem;
+      font-size: .85rem;
+      color: #71717a;
+    }
+
+    /* ── Card ──────────────────────────────────────── */
+    .card {
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      transition: border-color .3s;
+    }
+    .card:hover { border-color: rgba(255,255,255,.14); }
+
+    .card-title {
+      font-size: .8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #a1a1aa;
+      margin-bottom: 1rem;
+    }
+
+    /* ── Upload area ──────────────────────────────── */
+    .upload-zone {
+      position: relative;
+      border: 2px dashed rgba(129,140,248,.35);
+      border-radius: .75rem;
+      padding: 2.25rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: background .25s, border-color .25s;
+    }
+    .upload-zone:hover,
+    .upload-zone.drag-over {
+      background: rgba(129,140,248,.08);
+      border-color: #818cf8;
+    }
+    .upload-zone input[type="file"] {
+      position: absolute; inset: 0;
+      opacity: 0; cursor: pointer;
+    }
+    .upload-icon {
+      font-size: 2rem;
+      margin-bottom: .5rem;
+    }
+    .upload-label {
+      font-size: .9rem;
+      font-weight: 500;
+      color: #a5b4fc;
+    }
+    .upload-hint {
+      font-size: .75rem;
+      color: #52525b;
+      margin-top: .3rem;
+    }
+
+    /* progress bar */
+    .progress-bar-wrap {
+      margin-top: .75rem;
+      height: 4px;
+      background: rgba(255,255,255,.06);
+      border-radius: 4px;
+      overflow: hidden;
+      display: none;
+    }
+    .progress-bar-wrap.active { display: block; }
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #818cf8, #e879f9);
+      border-radius: 4px;
+      transition: width .2s;
+    }
+
+    /* ── File list ────────────────────────────────── */
+    .file-list {
+      display: flex;
+      flex-direction: column;
+      gap: .6rem;
+    }
+    .file-item {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      padding: .7rem .85rem;
+      background: rgba(255,255,255,.035);
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: .6rem;
+      animation: fadeUp .35s ease both;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .file-icon {
+      width: 36px; height: 36px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: .5rem;
+      background: rgba(129,140,248,.12);
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+    .file-info { flex: 1; min-width: 0; }
+    .file-name {
+      font-size: .85rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .file-size {
+      font-size: .72rem;
+      color: #71717a;
+      margin-top: 2px;
+    }
+    .file-actions {
+      display: flex;
+      gap: .4rem;
+      flex-shrink: 0;
+    }
+    .btn-icon {
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: .45rem;
+      border: 1px solid rgba(255,255,255,.08);
+      background: transparent;
+      color: #a1a1aa;
+      cursor: pointer;
+      font-size: .85rem;
+      transition: background .2s, color .2s, border-color .2s;
+    }
+    .btn-icon:hover {
+      background: rgba(255,255,255,.07);
+      color: #e4e4e7;
+      border-color: rgba(255,255,255,.16);
+    }
+    .btn-icon.danger:hover {
+      background: rgba(239,68,68,.15);
+      color: #f87171;
+      border-color: rgba(239,68,68,.3);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 1.5rem 0;
+      color: #52525b;
+      font-size: .82rem;
+    }
+
+    /* ── QR section ───────────────────────────────── */
+    .qr-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+    .qr-img {
+      width: 220px; height: 220px;
+      border-radius: .75rem;
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.08);
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+    .qr-img img {
+      width: 100%; height: 100%;
+      object-fit: contain;
+    }
+    .qr-placeholder {
+      color: #3f3f46;
+      font-size: .8rem;
+    }
+
+    /* ── Server Info ──────────────────────────────── */
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .6rem;
+    }
+    .info-cell {
+      padding: .65rem .85rem;
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: .55rem;
+    }
+    .info-label {
+      font-size: .68rem;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: #71717a;
+      margin-bottom: .2rem;
+    }
+    .info-value {
+      font-size: .85rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: #e4e4e7;
+      word-break: break-all;
+    }
+    .info-cell.full { grid-column: 1 / -1; }
+
+    /* ── Payload display ─────────────────────────── */
+    .payload-block {
+      margin-top: .75rem;
+      padding: .75rem 1rem;
+      background: rgba(0,0,0,.35);
+      border-radius: .55rem;
+      font-size: .72rem;
+      font-family: 'Courier New', Courier, monospace;
+      color: #a1a1aa;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 180px;
+      overflow-y: auto;
+    }
+
+    /* ── Status pill ──────────────────────────────── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: .45rem;
+      padding: .45rem 1rem;
+      border-radius: 2rem;
+      font-size: .75rem;
+      font-weight: 600;
+      background: rgba(34,197,94,.1);
+      color: #4ade80;
+      border: 1px solid rgba(34,197,94,.2);
+    }
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #4ade80;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: .4; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- Header -->
+    <div class="header">
+      <h1>TestSender</h1>
+      <p>OffShare Sender Simulator</p>
+    </div>
+
+    <!-- Status -->
+    <div class="status-bar">
+      <span class="status-dot"></span>
+      Server Running
+    </div>
+
+    <!-- Upload -->
+    <div class="card">
+      <div class="card-title">Upload Files</div>
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="fileInput" multiple />
+        <div class="upload-icon">📁</div>
+        <div class="upload-label">Click or drag files here</div>
+        <div class="upload-hint">Any file type · No size limit</div>
+      </div>
+      <div class="progress-bar-wrap" id="progressWrap">
+        <div class="progress-bar-fill" id="progressFill"></div>
+      </div>
+    </div>
+
+    <!-- File List -->
+    <div class="card">
+      <div class="card-title">Shared Files</div>
+      <div class="file-list" id="fileList">
+        <div class="empty-state">No files uploaded yet</div>
+      </div>
+    </div>
+
+    <!-- QR Code -->
+    <div class="card">
+      <div class="card-title">Connection QR Code</div>
+      <div class="qr-wrap">
+        <div class="qr-img" id="qrContainer">
+          <span class="qr-placeholder">Loading…</span>
+        </div>
+        <div class="payload-block" id="payloadBlock">Loading payload…</div>
+      </div>
+    </div>
+
+    <!-- Server Info -->
+    <div class="card">
+      <div class="card-title">Server Info</div>
+      <div class="info-grid" id="infoGrid">
+        <div class="info-cell">
+          <div class="info-label">IP Address</div>
+          <div class="info-value" id="infoIP">—</div>
+        </div>
+        <div class="info-cell">
+          <div class="info-label">Port</div>
+          <div class="info-value" id="infoPort">3000</div>
+        </div>
+        <div class="info-cell">
+          <div class="info-label">Device Name</div>
+          <div class="info-value" id="infoDevice">TestSender</div>
+        </div>
+        <div class="info-cell">
+          <div class="info-label">Status</div>
+          <div class="info-value" style="color:#4ade80;">● Online</div>
+        </div>
+        <div class="info-cell full">
+          <div class="info-label">Network URL</div>
+          <div class="info-value" id="infoURL">—</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // ── Helpers ──────────────────────────────────
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / 1048576).toFixed(2) + ' MB';
+    }
+
+    function fileIcon(name) {
+      const ext = name.split('.').pop().toLowerCase();
+      const map = {
+        pdf: '📄', doc: '📝', docx: '📝', txt: '📝',
+        png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', webp: '🖼️', svg: '🖼️',
+        mp4: '🎬', mkv: '🎬', avi: '🎬', mov: '🎬', webm: '🎬',
+        mp3: '🎵', wav: '🎵', flac: '🎵', aac: '🎵',
+        zip: '📦', rar: '📦', '7z': '📦', tar: '📦', gz: '📦',
+        apk: '📱', exe: '💿', dmg: '💿',
+      };
+      return map[ext] || '📎';
+    }
+
+    // ── Upload ───────────────────────────────────
+    const fileInput = document.getElementById('fileInput');
+    const uploadZone = document.getElementById('uploadZone');
+    const progressWrap = document.getElementById('progressWrap');
+    const progressFill = document.getElementById('progressFill');
+
+    uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+    uploadZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadZone.classList.remove('drag-over');
+      if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) uploadFiles(fileInput.files);
+    });
+
+    async function uploadFiles(files) {
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append('file', file);
+
+        progressWrap.classList.add('active');
+        progressFill.style.width = '0%';
+
+        await new Promise((resolve) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/upload');
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              progressFill.style.width = Math.round((e.loaded / e.total) * 100) + '%';
+            }
+          };
+          xhr.onload = () => {
+            progressFill.style.width = '100%';
+            setTimeout(() => {
+              progressWrap.classList.remove('active');
+              progressFill.style.width = '0%';
+            }, 600);
+            resolve();
+          };
+          xhr.onerror = () => resolve();
+          xhr.send(fd);
+        });
+      }
+      fileInput.value = '';
+      loadFiles();
+      loadQR();
+    }
+
+    // ── File list ────────────────────────────────
+    const fileListEl = document.getElementById('fileList');
+
+    async function loadFiles() {
+      try {
+        const res = await fetch('/files');
+        const files = await res.json();
+
+        if (!files.length) {
+          fileListEl.innerHTML = '<div class="empty-state">No files uploaded yet</div>';
+          return;
+        }
+
+        fileListEl.innerHTML = files.map((f, i) => `
+          <div class="file-item" style="animation-delay: ${i * .06}s">
+            <div class="file-icon">${fileIcon(f.name)}</div>
+            <div class="file-info">
+              <div class="file-name" title="${f.name}">${f.name}</div>
+              <div class="file-size">${formatSize(f.size)}</div>
+            </div>
+            <div class="file-actions">
+              <a class="btn-icon" href="/download?name=${encodeURIComponent(f.name)}" title="Download">⬇</a>
+              <button class="btn-icon danger" onclick="deleteFile('${f.name.replace(/'/g, "\\'")}')" title="Delete">✕</button>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        fileListEl.innerHTML = '<div class="empty-state">Failed to load files</div>';
+      }
+    }
+
+    async function deleteFile(name) {
+      await fetch('/delete?name=' + encodeURIComponent(name), { method: 'DELETE' });
+      loadFiles();
+      loadQR();
+    }
+
+    // ── QR Code ──────────────────────────────────
+    const qrContainer = document.getElementById('qrContainer');
+    const payloadBlock = document.getElementById('payloadBlock');
+
+    async function loadQR() {
+      try {
+        const res = await fetch('/qr');
+        const data = await res.json();
+        qrContainer.innerHTML = `<img src="${data.qr}" alt="QR Code" />`;
+        payloadBlock.textContent = JSON.stringify(data.payload, null, 2);
+
+        // Server info
+        document.getElementById('infoIP').textContent = data.payload.ip;
+        document.getElementById('infoURL').textContent =
+          'http://' + data.payload.ip + ':' + data.payload.port;
+      } catch (e) {
+        qrContainer.innerHTML = '<span class="qr-placeholder">QR unavailable</span>';
+        payloadBlock.textContent = 'Error loading payload';
+      }
+    }
+
+    // ── Init ─────────────────────────────────────
+    loadFiles();
+    loadQR();
+  </script>
+</body>
+</html>
