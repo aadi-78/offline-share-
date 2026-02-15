@@ -13,7 +13,8 @@ class FileServerPackage : ReactPackage {
             HotspotManager(reactContext),
             WifiConnectorModule(reactContext),
             MediaScannerModule(reactContext),
-            SafTransferModule(reactContext)
+            SafTransferModule(reactContext),
+            NearbyManager(reactContext)
         )
     }
 

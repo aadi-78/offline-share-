@@ -180,4 +180,5 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+    implementation "com.google.android.gms:play-services-nearby:18.5.0"
 }
