@@ -673,6 +673,7 @@ const styles = StyleSheet.create({
     primaryButton: {
         backgroundColor: COLORS.accent,
         paddingVertical: 14,
+        paddingHorizontal: 24,
         borderRadius: 10,
         alignItems: 'center',
         flexDirection: 'row',
