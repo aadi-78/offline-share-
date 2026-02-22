@@ -32,6 +32,7 @@ const ReceiveScreen = ({ onBack }) => {
     const [fileProgress, setFileProgress] = useState({});
     const [errorMsg, setErrorMsg] = useState('');
     const [safDirUri, setSafDirUri] = useState(null);
+    const safDirUriRef = useRef(null);
 
     // Animation Refs
     const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -104,6 +105,7 @@ const ReceiveScreen = ({ onBack }) => {
     const setupSaf = async () => {
         // Check if we already have it in state
         if (safDirUri) {
+            safDirUriRef.current = safDirUri;
             console.log('📁 Folder in use:', safDirUri);
             return safDirUri;
         }
@@ -114,6 +116,7 @@ const ReceiveScreen = ({ onBack }) => {
                 const savedUri = await AsyncStorage.getItem('@saf_directory_uri');
                 if (savedUri) {
                     setSafDirUri(savedUri);
+                    safDirUriRef.current = savedUri;
                     console.log('📁 Folder in use (from storage):', savedUri);
                     return savedUri;
                 }
@@ -129,6 +132,7 @@ const ReceiveScreen = ({ onBack }) => {
             const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync('content://com.android.externalstorage.documents/tree/primary%3ADownload%2FOffShare');
             if (permissions.granted) {
                 setSafDirUri(permissions.directoryUri);
+                safDirUriRef.current = permissions.directoryUri;
 
                 // Try to save to AsyncStorage (non-blocking)
                 try {
@@ -150,6 +154,7 @@ const ReceiveScreen = ({ onBack }) => {
                 const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync(null);
                 if (permissions.granted) {
                     setSafDirUri(permissions.directoryUri);
+                    safDirUriRef.current = permissions.directoryUri;
 
                     // Try to save to AsyncStorage (non-blocking)
                     try {
@@ -238,9 +243,14 @@ const ReceiveScreen = ({ onBack }) => {
         }));
 
         subscriptions.push(nearbyEvents.addListener('onPayloadTransferUpdate', (event) => {
-            // event: { payloadId, bytesTransferred, totalBytes, status, filePath? }
+            // event: { payloadId, bytesTransferred, totalBytes, status, filePath?, payloadType?, fileName? }
 
-            // Update progress
+            // Skip BYTES payload updates (metadata) — only track FILE payloads
+            if (event.payloadType === 'BYTES') {
+                return;
+            }
+
+            // Update progress for FILE payloads only
             setFileProgress(prev => ({
                 ...prev,
                 [event.payloadId]: (event.bytesTransferred / event.totalBytes) * 100
@@ -248,21 +258,41 @@ const ReceiveScreen = ({ onBack }) => {
 
             // Update incoming file status
             if (event.status === 'SUCCESS') {
+                console.log(`✅ FILE Payload ${event.payloadId} transfer SUCCESS, filePath: ${event.filePath}, fileName: ${event.fileName}`);
                 // Update file status to completed
-                setIncomingFiles(prev => prev.map(f =>
-                    f.payloadId === event.payloadId
-                        ? { ...f, status: 'completed', filePath: event.filePath }
-                        : f
-                ));
+                setIncomingFiles(prev => {
+                    const updated = prev.map(f =>
+                        f.payloadId === event.payloadId
+                            ? { ...f, status: 'completed', filePath: event.filePath }
+                            : f
+                    );
 
-                // Save to SAF - use a ref callback to avoid closure issues
-                if (event.filePath) {
-                    // We need to access safDirUri and incomingFiles from closure
-                    // Schedule this slightly later to ensure state is updated
-                    setTimeout(() => {
-                        handleFileSave(event.payloadId, event.filePath);
-                    }, 100);
-                }
+                    // Save to SAF right here where we have current state
+                    if (event.filePath) {
+                        const fileInfo = updated.find(f => f.payloadId === event.payloadId);
+                        const dirUri = safDirUriRef.current;
+                        // Use fileInfo.name from metadata, or fallback to event.fileName from native
+                        const fileName = fileInfo?.name || event.fileName || `received_${Date.now()}`;
+                        if (dirUri) {
+                            (async () => {
+                                try {
+                                    const mimeType = 'application/octet-stream';
+                                    console.log(`📄 Creating SAF file: ${fileName} in ${dirUri}`);
+                                    const newFileUri = await StorageAccessFramework.createFileAsync(dirUri, fileName, mimeType);
+                                    console.log(`📄 SAF file created: ${newFileUri}`);
+                                    await SafTransfer.copyFileToContentUri('file://' + event.filePath, newFileUri);
+                                    console.log(`💾 FILE SAVED ${dirUri}/${fileName}`);
+                                } catch (e) {
+                                    console.error(`❌ Failed to save ${fileName}:`, e);
+                                }
+                            })();
+                        } else {
+                            console.warn(`⚠️ Cannot save file: dirUri=${dirUri}, fileInfo=${!!fileInfo}`);
+                        }
+                    }
+
+                    return updated;
+                });
             } else if (event.status === 'FAILURE') {
                 setIncomingFiles(prev => prev.map(f =>
                     f.payloadId === event.payloadId
@@ -278,28 +308,7 @@ const ReceiveScreen = ({ onBack }) => {
         };
     }, []); // Empty dependencies - event listeners use setState with callbacks
 
-    // Handler for saving files to SAF
-    const handleFileSave = async (payloadId, filePath) => {
-        if (!safDirUri) return;
-
-        // Find file info from current state
-        setIncomingFiles(currentFiles => {
-            const fileInfo = currentFiles.find(f => f.payloadId === payloadId);
-            if (fileInfo && filePath) {
-                (async () => {
-                    try {
-                        const mimeType = 'application/octet-stream';
-                        const newFileUri = await StorageAccessFramework.createFileAsync(safDirUri, fileInfo.name, mimeType);
-                        await SafTransfer.copyFileToContentUri('file://' + filePath, newFileUri);
-                        console.log(`💾 FILE SAVED ${newFileUri}/${fileInfo.name}`);
-                    } catch (e) {
-                        console.error(`❌ Failed to save ${fileInfo.name}:`, e);
-                    }
-                })();
-            }
-            return currentFiles;
-        });
-    };
+    // handleFileSave is now inlined in the event listener above to avoid stale closure issues
 
     // Check for completion
     useEffect(() => {
@@ -322,6 +331,30 @@ const ReceiveScreen = ({ onBack }) => {
                 [{ text: "OK" }]
             );
             return;
+        }
+
+        // Check All Files Access (needed to read received files from .nearby directory)
+        try {
+            const hasAllFiles = await NearbyManager.isAllFilesAccessGranted();
+            if (!hasAllFiles) {
+                Alert.alert(
+                    "All Files Access Required",
+                    "OffShare needs access to read received files from the Nearby transfer directory. Please enable 'All files access' for OffShare on the next screen.",
+                    [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                            text: "Grant Access",
+                            onPress: () => {
+                                NearbyManager.requestAllFilesAccess();
+                            }
+                        }
+                    ]
+                );
+                return;
+            }
+        } catch (e) {
+            console.warn("All Files Access check failed:", e);
+            // Continue anyway on older Android versions
         }
 
         const uri = await setupSaf();

@@ -1,6 +1,10 @@
 package com.seven1111.offshare
 
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
 import android.util.Log
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
@@ -8,7 +12,9 @@ import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.*
 import org.json.JSONObject
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileNotFoundException
+import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
 
 class NearbyManager(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
@@ -266,17 +272,52 @@ class NearbyManager(private val reactContext: ReactApplicationContext) : ReactCo
                 PayloadTransferUpdate.Status.IN_PROGRESS -> params.putString("status", "IN_PROGRESS")
                 PayloadTransferUpdate.Status.SUCCESS -> {
                     params.putString("status", "SUCCESS")
-                    // Handle file success
                     val payloadId = update.payloadId
                     val payload = payloadMap[payloadId]
+                    val fileName = filenameMap[payloadId]
+                    
+                    if (fileName != null) {
+                        params.putString("fileName", fileName)
+                    }
+                    
                     if (payload != null && payload.type == Payload.Type.FILE) {
-                         val file = payload.asFile()?.asJavaFile()
-                         
-                         // Pass the file path to JS - no need to rename here
-                         // JS side will copy it to SAF directory
-                         if (file != null && file.exists()) {
-                             params.putString("filePath", file.absolutePath)
-                         }
+                        params.putString("payloadType", "FILE")
+                        val nearbyFile = payload.asFile()?.asJavaFile()
+                        
+                        if (nearbyFile != null && nearbyFile.exists()) {
+                            // Copy from restricted .nearby dir to app's cache dir
+                            val targetName = fileName ?: "received_${System.currentTimeMillis()}"
+                            val cacheDir = File(reactContext.cacheDir, "nearby_received")
+                            cacheDir.mkdirs()
+                            val cacheFile = File(cacheDir, targetName)
+                            
+                            try {
+                                FileInputStream(nearbyFile).use { input ->
+                                    FileOutputStream(cacheFile).use { output ->
+                                        val buffer = ByteArray(256 * 1024)
+                                        var bytesRead: Int
+                                        while (input.read(buffer).also { bytesRead = it } > 0) {
+                                            output.write(buffer, 0, bytesRead)
+                                        }
+                                        output.flush()
+                                    }
+                                }
+                                params.putString("filePath", cacheFile.absolutePath)
+                                Log.d("NearbyManager", "File copied to cache: ${cacheFile.absolutePath}")
+                                
+                                // Clean up the original .nearby file
+                                nearbyFile.delete()
+                            } catch (e: Exception) {
+                                Log.e("NearbyManager", "Failed to copy file to cache", e)
+                                // Fallback: try passing original path anyway
+                                params.putString("filePath", nearbyFile.absolutePath)
+                            }
+                        } else {
+                            Log.w("NearbyManager", "File transfer SUCCESS but file not found or null")
+                        }
+                    } else {
+                        // BYTES payload or unknown — mark it so JS can skip
+                        params.putString("payloadType", "BYTES")
                     }
                 }
                 PayloadTransferUpdate.Status.FAILURE -> params.putString("status", "FAILURE")
@@ -295,6 +336,35 @@ class NearbyManager(private val reactContext: ReactApplicationContext) : ReactCo
         }
     }
     
+    // ─── All Files Access (MANAGE_EXTERNAL_STORAGE) ─────────────
+    @ReactMethod
+    fun isAllFilesAccessGranted(promise: Promise) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            promise.resolve(Environment.isExternalStorageManager())
+        } else {
+            // Android 10 and below: requestLegacyExternalStorage handles it
+            promise.resolve(true)
+        }
+    }
+
+    @ReactMethod
+    fun requestAllFilesAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                intent.data = Uri.parse("package:" + reactContext.packageName)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                reactContext.startActivity(intent)
+            } catch (e: Exception) {
+                Log.e("NearbyManager", "Failed to open All Files Access settings", e)
+                // Fallback to general settings
+                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                reactContext.startActivity(intent)
+            }
+        }
+    }
+
     // Required for EventEmitter
     @ReactMethod
     fun addListener(eventName: String) {
